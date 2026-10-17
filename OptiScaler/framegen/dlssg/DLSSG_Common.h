@@ -3,6 +3,7 @@
 #include <framegen/IFGFeature.h>
 
 #include <proxies/Streamline_Proxy.h>
+#include "DLSSG_Status.h"
 
 // The Streamline side of the DLSSG output, shared by the D3D12 and Vulkan ones
 class DLSSG_Common : public virtual IFGFeature
@@ -10,6 +11,10 @@ class DLSSG_Common : public virtual IFGFeature
   protected:
     sl::ViewportHandle _viewport { 0 };
     sl::FrameToken* _frameToken = nullptr;
+    DLSSGStatus::Monitor _runtimeStatus;
+    bool _optionsApplied = false;
+
+    void UpdateRuntimeStatus(bool paused);
 
     // Max interpolation count and DMFG support, once the swapchain exists
     void QueryState();
@@ -24,7 +29,8 @@ class DLSSG_Common : public virtual IFGFeature
 
   public:
     // IFGFeature
-    const char* Name() override final { return "DLSSG"; }
+    const char* Name() override final { return Sm86Bridge::IsSelected() ? "DLSSG-SM86" : "DLSSG"; }
+    DLSSGStatus::Snapshot RuntimeStatus() const { return _runtimeStatus.Read(); }
     feature_version Version() override final;
     void Activate() override final;
     void Deactivate() override final;

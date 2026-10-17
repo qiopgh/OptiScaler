@@ -1,4 +1,5 @@
 #include "pch.h"
+#include <compat/Sm86Bridge.h>
 #include "dllmain.h"
 
 #include "Util.h"
@@ -1619,6 +1620,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         NtdllProxy::Init();
         KernelBaseProxy::Init();
         Kernel32Proxy::Init();
+
+        // 先锁定本次启动的后端，再安装加载钩子；官方后端不会加载外部代理。
+        if (!Sm86Bridge::Prepare())
+            Config::Instance()->FGEnabled.set_volatile_value(false);
 
         // Check for Wine
         spdlog::info("");

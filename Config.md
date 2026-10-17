@@ -1,4 +1,7 @@
 # Configuration
+
+SM75/SM86 特殊后端使用 `[DLSSG] Sm86Compatibility` 和 `Sm86Path`，默认关闭。切换需重启，不能与 NGX 帧生成替换同时使用；具体配置见 [集成说明](docs/SM86-DLSSG.md)。
+
 This document will try to explain the `OptiScaler.ini` and in-game menu (shortcut key for opening menu is **INSERT**) settings as much as possible. 
 
 ![in-game menu](images/menu043.png)

@@ -201,6 +201,8 @@ bool Config::Reload(std::filesystem::path iniPath)
         }
 
         {
+            FGDLSSGSm86Compatibility.set_from_config(readBool("DLSSG", "Sm86Compatibility"));
+            FGDLSSGSm86Path.set_from_config(readWString("DLSSG", "Sm86Path"));
             FGDLSSGInterpolationCount.set_from_config(readInt("DLSSG", "InterpolationCount"));
             if (FGDLSSGInterpolationCount.has_value() &&
                 (FGDLSSGInterpolationCount.value() < 1 || FGDLSSGInterpolationCount.value() > 6))
@@ -998,6 +1000,10 @@ bool Config::SaveIni()
     }
 
     {
+        ini.SetValue("DLSSG", "Sm86Compatibility",
+                     GetBoolValue(Instance()->FGDLSSGSm86Compatibility.value_for_config()).c_str());
+        ini.SetValue("DLSSG", "Sm86Path",
+                     wstring_to_string(Instance()->FGDLSSGSm86Path.value_for_config_or(L"auto")).c_str());
         ini.SetValue("DLSSG", "InterpolationCount",
                      GetIntValue(Instance()->FGDLSSGInterpolationCount.value_for_config()).c_str());
         ini.SetValue("DLSSG", "UseGamesReflexMarkers",

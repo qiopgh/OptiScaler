@@ -29,6 +29,12 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="compat\Sm86Bridge.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="framegen\dlssg\DLSSG_Status.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="Config.h">
       <Filter>Config</Filter>
     </ClInclude>
@@ -1105,6 +1111,9 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="compat\Sm86Bridge.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Config.cpp">
       <Filter>Config</Filter>
     </ClCompile>

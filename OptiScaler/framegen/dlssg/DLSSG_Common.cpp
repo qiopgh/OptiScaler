@@ -26,12 +26,18 @@ void DLSSG_Common::Activate()
     {
         UpdateTarget();
         _isActive = true;
+        _runtimeStatus.Reset(true);
     }
 }
 
 void DLSSG_Common::Deactivate()
 {
     LOG_DEBUG("");
+
+    _runtimeStatus.Reset();
+    _optionsApplied = false;
+    if (State::Instance().activeFgOutput == FGOutput::DLSSG)
+        State::Instance().dlssgDetectedInterpolationCount = 0;
 
     if (_isActive)
     {
@@ -75,6 +81,34 @@ void DLSSG_Common::QueryState()
     }
 }
 
+void DLSSG_Common::UpdateRuntimeStatus(bool paused)
+{
+    const bool requested = _isActive && Config::Instance()->IsFGEnabled();
+    const auto now = GetTickCount64();
+    if (requested && !paused && !_optionsApplied && _runtimeStatus.Read().phase == DLSSGStatus::Phase::QueryError)
+    {
+        State::Instance().dlssgDetectedInterpolationCount = 0;
+        return;
+    }
+    if (!requested || paused || !_optionsApplied)
+    {
+        // 只有开关请求或初始化成功时显示等待，不显示已补帧。
+        _runtimeStatus.Observe(now, requested, true, true, 0, 0, 0, 0);
+    }
+    else
+    {
+        sl::DLSSGState backend {};
+        const auto query = StreamlineProxy::DLSSGGetState();
+        const auto result = query != nullptr ? query(_viewport, backend, nullptr) : sl::Result::eErrorFeatureMissing;
+        _runtimeStatus.Observe(now, true, false, result == sl::Result::eOk, static_cast<uint32_t>(result),
+                               static_cast<uint32_t>(backend.status), backend.numFramesActuallyPresented,
+                               _framesToInterpolate);
+    }
+    const auto status = _runtimeStatus.Read();
+    State::Instance().dlssgDetectedInterpolationCount =
+        status.phase == DLSSGStatus::Phase::Active ? status.generatedFrames : 0;
+}
+
 void DLSSG_Common::SetOptions(bool gameMarkersReachStreamline)
 {
     auto config = Config::Instance();
@@ -115,13 +149,21 @@ void DLSSG_Common::SetOptions(bool gameMarkersReachStreamline)
 
     sl::ReflexOptions reflexConst = {};
     reflexConst.mode = sl::ReflexMode::eLowLatency;
-    reflexConst.useMarkersToOptimize = gameMarkersReachStreamline && ReflexHooks::gameIsSendingMarkers();
+    reflexConst.useMarkersToOptimize = gameMarkersReachStreamline && ReflexHooks::gameIsSendingMarkers() &&
+                                      config->FGDLSSGUseGamesReflexMarkers.value_or_default();
 
     ScopedOptiScalerReflex optiScalerCall {};
     auto reflexSetOptionsResult = StreamlineProxy::ReflexSetOptions()(reflexConst);
 
     if (reflexSetOptionsResult != sl::Result::eOk)
         LOG_ERROR("Couldn't set Reflex options, error: {}", magic_enum::enum_name(reflexSetOptionsResult));
+
+    _optionsApplied = dlssgSetOptionsResult == sl::Result::eOk && reflexSetOptionsResult == sl::Result::eOk;
+    if (!_optionsApplied)
+        _runtimeStatus.Observe(GetTickCount64(), true, false, false,
+                               static_cast<uint32_t>(dlssgSetOptionsResult != sl::Result::eOk
+                                                         ? dlssgSetOptionsResult : reflexSetOptionsResult),
+                               0, 0, 0);
 }
 
 bool DLSSG_Common::SetConstants(int fIndex, uint32_t frameId, uint32_t mvWidth, uint32_t mvHeight)

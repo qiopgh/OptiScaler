@@ -473,6 +473,8 @@ void DLSSG_Dx12::CreateObjects(ID3D12Device* InDevice)
 
 bool DLSSG_Dx12::Present()
 {
+    // 每次真实呈现前查询上次呈现的后端统计，不依赖 NGX Evaluate 钩子更新菜单。
+    UpdateRuntimeStatus(IsPaused());
     auto fIndex = GetIndexWillBeDispatched();
     LOG_DEBUG("fIndex: {}", fIndex);
 

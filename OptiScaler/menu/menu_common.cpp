@@ -13,6 +13,7 @@
 #include <proxies/Streamline_Proxy.h>
 
 #include <framegen/nvngx/Nvngx_FG.h>
+#include <framegen/dlssg/DLSSG_Common.h>
 #include <framegen/reprojection/Reprojection_Dx12.h>
 
 #include <nvapi/fakenvapi.h>
@@ -3596,6 +3597,21 @@ void MenuCommon::RenderFrameGenerationSelection(RenderMenuContext& ctx)
     auto& menuResScale = ctx.menuResScale;
     auto& primaryGpu = *ctx.primaryGpu;
 
+    bool sm86Backend = config->FGDLSSGSm86Compatibility.value_or_default();
+    if (ImGui::Checkbox("DLSS-G SM75/SM86 (restart required)", &sm86Backend))
+    {
+        config->FGDLSSGSm86Compatibility = sm86Backend;
+        config->SaveIni();
+    }
+    ShowTooltip("选择 DLSSG 输出并重启后生效。特殊后端与官方后端互斥，组件放在独立的 dlssg_sm86_proxy 子目录。\n"
+                "不要同时选择 Nukem、Enabler 或 FFX 的 NGX 替换。关闭此选项并重启可回到官方路径。");
+    ImGui::Text("DLSS-G backend: %s", Sm86Bridge::IsSelected() ? "SM75/SM86" : "NVIDIA / standard");
+    if (sm86Backend != Sm86Bridge::IsSelected())
+        ImGui::TextColored(toneMapColor(ImVec4(1.f, 0.8f, 0.f, 1.f)),
+                           "Backend change pending: select DLSSG output, then restart");
+    if (Sm86Bridge::IsSelected() && !Sm86Bridge::IsReady())
+        ImGui::TextColored(toneMapColor(ImVec4(1.f, 0.f, 0.f, 1.f)), "SM75/SM86 backend failed; see log");
+
     /// FG INPUTS
 
     static std::vector<MenuOption<FGInput>> inputOptions;
@@ -4645,7 +4661,33 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
 
         ImGui::Text("Current DLSSG state:");
         ImGui::SameLine();
-        if (auto count = state.dlssgDetectedInterpolationCount; count > 0)
+        if (state.swapchainApi == API::DX12)
+        {
+            const auto output = dynamic_cast<DLSSG_Common*>(dlssg);
+            const auto status = output != nullptr ? output->RuntimeStatus() : DLSSGStatus::Snapshot {};
+            switch (status.phase)
+            {
+            case DLSSGStatus::Phase::Active:
+                ImGui::TextColored(toneMapColor(ImVec4(0.f, 1.f, 0.25f, 1.f)), "ON (requested %ux)",
+                                   static_cast<unsigned int>(status.generatedFrames) + 1);
+                break;
+            case DLSSGStatus::Phase::Waiting:
+                ImGui::TextColored(toneMapColor(ImVec4(1.f, 0.8f, 0.f, 1.f)), "WAITING FOR GENERATED PRESENTS");
+                break;
+            case DLSSGStatus::Phase::QueryError:
+            case DLSSGStatus::Phase::BackendError:
+                ImGui::TextColored(toneMapColor(ImVec4(1.f, 0.f, 0.f, 1.f)), "ERROR (%s 0x%X)",
+                                   status.phase == DLSSGStatus::Phase::QueryError ? "Streamline" : "DLSSG",
+                                   status.code);
+                break;
+            default:
+                ImGui::TextColored(toneMapColor(ImVec4(1.f, 0.f, 0.f, 1.f)), "OFF");
+                break;
+            }
+            ShowTooltip("ON 需要后端报告额外呈现帧；requested 为请求倍率，并非测得的实际帧率倍率。\n"
+                        "仅勾选开关或创建交换链不会显示 ON；查询失败、Reflex 等后端错误会单独显示。");
+        }
+        else if (auto count = state.dlssgDetectedInterpolationCount; count > 0)
         {
             ImGui::TextColored(toneMapColor(ImVec4(0.f, 1.f, 0.25f, 1.f)), std::format("ON {}x", count + 1).c_str());
         }

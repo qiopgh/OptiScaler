@@ -11,6 +11,8 @@
 </div>
 <br />
 
+本分支提供显式选择的 SM75/SM86 DLSS-G 后端，默认仍使用官方路径。安装布局、互斥规则和状态显示说明见 [SM75/SM86 集成说明](docs/SM86-DLSSG.md)。
+
 ## Table of Contents
 
 **1.** [**About**](#about)  

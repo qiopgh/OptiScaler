@@ -639,6 +639,10 @@ class Config
     CustomOptional<bool> FGXeFGDebugView { false };
     CustomOptional<bool, SoftDefault> FGXeFGForceBorderless { false };
 
+    // 特殊后端默认关闭，使用独立目录，切换后必须重启。
+    CustomOptional<bool> FGDLSSGSm86Compatibility { false };
+    CustomOptional<std::wstring, NoDefault> FGDLSSGSm86Path;
+
     // DLSSG
     CustomOptional<int> FGDLSSGInterpolationCount { 1 }; // For Opti's own SL instance
     CustomOptional<bool> FGDLSSGUseGamesReflexMarkers { true };

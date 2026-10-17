@@ -4,6 +4,7 @@
 #include "Util.h"
 #include "Config.h"
 #include "Logger.h"
+#include <compat/Sm86Bridge.h>
 
 #include <proxies/Ntdll_Proxy.h>
 #include <proxies/KernelBase_Proxy.h>
@@ -73,8 +74,11 @@ class StreamlineProxy
         if (_dll != nullptr)
             return true;
 
+        if (!Sm86Bridge::Prepare())
+            return false;
+
         auto owner = State::GetOwner();
-        if (State::Instance().activeFgOutput == FGOutput::DLSSG)
+        if (State::Instance().activeFgOutput == FGOutput::DLSSG && !Sm86Bridge::IsSelected())
         {
             State::DisableChecks(owner, "sl.");
         }
@@ -98,7 +102,9 @@ class StreamlineProxy
             auto slCommonPath = localSlPath / L"sl.common.dll";
             State::Instance().optiSlCommon = NtdllProxy::LoadLibraryExW_Ldr(slCommonPath.c_str(), NULL, NULL);
             auto dlssgPath = localSlPath / L"nvngx_dlssg.dll"; // TODO: maybe some search?
-            State::Instance().optiDLSSG = NtdllProxy::LoadLibraryExW_Ldr(dlssgPath.c_str(), NULL, NULL);
+            // 特殊模式由代理在 Streamline 初始化时选择运行库，不预设其内部路径和 Runtime.Mode。
+            if (!Sm86Bridge::IsSelected())
+                State::Instance().optiDLSSG = NtdllProxy::LoadLibraryExW_Ldr(dlssgPath.c_str(), NULL, NULL);
 
             return HookStreamline(_dll);
         }
@@ -315,7 +321,22 @@ class StreamlineProxy
         if (result != sl::Result::eOk || !_isD3D12Requested)
             return result;
 
-        return BindActiveFeatures() ? sl::Result::eOk : sl::Result::eErrorFeatureMissing;
+        if (!BindActiveFeatures())
+            return sl::Result::eErrorFeatureMissing;
+
+        if (Sm86Bridge::IsSelected())
+        {
+            // 特殊后端在绑定真实设备后查询能力；失败时不伪造支持或切换替换后端。
+            auto luid = static_cast<ID3D12Device*>(device)->GetAdapterLuid();
+            sl::AdapterInfo adapterInfo {};
+            adapterInfo.deviceLUID = reinterpret_cast<uint8_t*>(&luid);
+            adapterInfo.deviceLUIDSizeInBytes = sizeof(luid);
+            result = _slIsFeatureSupported(sl::kFeatureDLSS_G, adapterInfo);
+            if (result != sl::Result::eOk)
+                LOG_ERROR("SM75/SM86 DLSS-G 设备能力查询失败：{}", static_cast<int>(result));
+            return result;
+        }
+        return sl::Result::eOk;
     }
 
     // OTA overrides may replace the bundled DLLs. Resolve only from the plugins
@@ -352,6 +373,11 @@ class StreamlineProxy
     // The part shared by D3D12 and Vulkan, before setting the device
     static bool InitStreamline(sl::RenderAPI renderApi)
     {
+        if (Sm86Bridge::IsSelected() && renderApi != sl::RenderAPI::eD3D12)
+        {
+            LOG_ERROR("SM75/SM86 外部后端仅支持原生 D3D12；当前 API 不受支持，未切换到官方后端。");
+            return false;
+        }
         if (!StreamlineProxy::LoadStreamline())
             return false;
 
@@ -389,6 +415,7 @@ class StreamlineProxy
         mainDllPath = mainDllPath / L"streamline";
         pathStorage.push_back(mainDllPath.wstring());
 
+        // 保留宿主搜索路径，让外部代理接收普通运行库请求并完成重定向。
         if (nvngxDlssGPath.has_value())
             pathStorage.push_back(nvngxDlssGPath.value().parent_path().wstring());
 
@@ -412,7 +439,8 @@ class StreamlineProxy
         pref.numPathsToPlugins = (uint32_t) paths.size();
 
         auto owner = State::GetOwner();
-        if (State::Instance().activeFgOutput == FGOutput::DLSSG)
+        // 特殊后端需要原生 NGX 和 NVAPI 初始化请求到达外部代理，不能返回 OptiScaler 的替代句柄。
+        if (State::Instance().activeFgOutput == FGOutput::DLSSG && !Sm86Bridge::IsSelected())
         {
             State::DisableChecks(owner, "sl.");
         }
@@ -425,8 +453,19 @@ class StreamlineProxy
         auto initResult = StreamlineProxy::Init()(pref, sl::kSDKVersion);
         _isInitializing = false;
 
+        if (Sm86Bridge::IsSelected() && initResult == sl::Result::eOk)
+            State::Instance().optiDLSSG = Sm86Bridge::Runtime();
+
+        if (Sm86Bridge::IsSelected() && initResult != sl::Result::eOk)
+        {
+            State::EnableChecks(owner);
+            LOG_ERROR("SM75/SM86 Streamline 初始化失败：{}；不启用其他帧生成后端。", static_cast<int>(initResult));
+            return false;
+        }
+
         sl::AdapterInfo adapterInfo {};
-        if (StreamlineProxy::IsFeatureSupported()(sl::kFeatureDLSS_G, adapterInfo) != sl::Result::eOk)
+        if (!Sm86Bridge::IsSelected() &&
+            StreamlineProxy::IsFeatureSupported()(sl::kFeatureDLSS_G, adapterInfo) != sl::Result::eOk)
         {
             if (State::Instance().activeFgNvngx == FGNvngxReplacement::None)
             {
